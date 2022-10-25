@@ -87,6 +87,8 @@ class ResNet(torch.nn.Module):
             self.n_outputs = 512
             self.disable_bn = True
         elif hparams['backbone'] == 'resnet50':
+            import ssl
+            ssl._create_default_https_context = ssl._create_unverified_context
             self.network = torchvision.models.resnet50(pretrained=True)
             self.n_outputs = 2048
             self.disable_bn = True

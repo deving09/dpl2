@@ -166,6 +166,13 @@ if __name__ == "__main__":
         for i, (env, env_weights) in enumerate(uda_splits)
         if i in args.test_envs]
 
+    #print(uda_splits)
+    #print(len(dataset))
+    #print(len(args.test_envs))
+    #print(args.test_envs)
+    #print(dataset)
+    #1/0
+
     eval_loaders = [FastDataLoader(
         dataset=env,
         batch_size=64,
@@ -207,9 +214,11 @@ if __name__ == "__main__":
     checkpoint_freq = args.checkpoint_freq or dataset.CHECKPOINT_FREQ
 
     # TODO:
-    args.skip_model_save = True
+    #args.skip_model_save = True
     def save_checkpoint(filename):
+        print("SAVE CHECKPOINT: %s" % filename)
         if args.skip_model_save:
+            print("WHY ARE YOU SKIPPING")
             return
         save_dict = {
             "args": vars(args),
@@ -219,6 +228,8 @@ if __name__ == "__main__":
             "model_hparams": hparams,
             "model_dict": algorithm.cpu().state_dict()
         }
+        print("SAVE CHECKPOINT: %s" % filename)
+        print(os.path.join(args.output_dir, filename))
         torch.save(save_dict, os.path.join(args.output_dir, filename))
 
 
@@ -228,8 +239,7 @@ if __name__ == "__main__":
         minibatches_device = [(x.to(device), y.to(device))
             for x,y in next(train_minibatches_iterator)]
         if args.task == "domain_adaptation":
-            uda_device = [x.to(device)
-                for x,_ in next(uda_minibatches_iterator)]
+            uda_device = [x.to(device) for x,_ in next(uda_minibatches_iterator)]
         else:
             uda_device = None
         step_vals = algorithm.update(minibatches_device, uda_device)
@@ -279,6 +289,8 @@ if __name__ == "__main__":
                     records.append(json.loads(line[:-1]))
             records = Q(records)
             scores = records.map(model_selection.IIDAccuracySelectionMethod._step_acc)
+            #print(scores)
+            #print(epochs_path)
             if scores[-1] == scores.argmax('val_acc'):
                 save_checkpoint('IID_best.pkl')
                 algorithm.to(device)

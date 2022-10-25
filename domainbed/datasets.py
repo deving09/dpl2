@@ -211,6 +211,8 @@ class MultipleEnvironmentImageFolder(MultipleDomainDataset):
         if hparams['clip_transform']:
             import clip
             print('Using clip_transform', hparams['clip_backbone'])
+            import ssl
+            ssl._create_default_https_context = ssl._create_unverified_context
             clip_transform = clip.load(hparams['clip_backbone'])[1]
 
         self.datasets = []

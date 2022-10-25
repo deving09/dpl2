@@ -173,6 +173,7 @@ if __name__ == "__main__":
     if args.hparams:
         hparams.update(json.loads(args.hparams))
 
+    hparams['clip_transform'] = hparams['backbone'] == 'clip'
     print('HParams:')
     for k, v in sorted(hparams.items()):
         print('\t{}: {}'.format(k, v))
