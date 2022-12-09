@@ -10,6 +10,8 @@ import time
 import uuid
 from itertools import chain
 
+import wandb
+
 import numpy as np
 import PIL
 import torch
@@ -23,6 +25,10 @@ from domainbed.lib import misc
 from domainbed.lib.fast_data_loader import InfiniteDataLoader, FastDataLoader, DataParallelPassthrough
 from domainbed import model_selection
 from domainbed.lib.query import Q
+
+#import omegaconf
+#from omegaconf import OmegaConf
+
 
 
 if __name__ == "__main__":
@@ -51,6 +57,12 @@ if __name__ == "__main__":
     parser.add_argument('--uda_holdout_fraction', type=float, default=0)
     parser.add_argument('--skip_model_save', action='store_true')
     parser.add_argument('--save_model_every_checkpoint', action='store_true')
+    parser.add_argument("--project", default="prompt_dg", help="wandb project name")
+
+    parser.add_argument('overrides', nargs='*', help="Any key=calue arguements to override config values"
+                                                     "(use dots for.nest=overrides)")
+
+
     
     # parser.add_argument('--clip_backbone', type=str, default="None")
     args = parser.parse_args()
@@ -78,6 +90,11 @@ if __name__ == "__main__":
     print('Args:')
     for k, v in sorted(vars(args).items()):
         print('\t{}: {}'.format(k, v))
+
+    run = wandb.init(project=f"{args.project}_{args.dataset}", group=args.algorithm, config=args)
+
+    #wandb.save(args)
+    wandb.run.log_code(".")
 
     if args.hparams_seed == 0:
         hparams = hparams_registry.default_hparams(args.algorithm, args.dataset)
@@ -268,6 +285,8 @@ if __name__ == "__main__":
                 last_results_keys = results_keys
             misc.print_row([results[key] for key in results_keys],
                 colwidth=12)
+            
+            wandb.log(results)
 
             results.update({
                 'hparams': hparams,
@@ -278,6 +297,8 @@ if __name__ == "__main__":
 
             with open(epochs_path, 'a') as f:
                 f.write(json.dumps(results, sort_keys=True) + "\n")
+           
+
 
             algorithm_dict = algorithm.state_dict()
             start_step = step + 1

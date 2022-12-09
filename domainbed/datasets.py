@@ -184,9 +184,11 @@ class RotatedMNIST(MultipleEnvironmentMNIST):
 class MultipleEnvironmentImageFolder(MultipleDomainDataset):
     def __init__(self, root, test_envs, augment, hparams):
         super().__init__()
+        print(root)
         environments = [f.name for f in os.scandir(root) if f.is_dir()]
         environments = sorted(environments)
         hparams['domain_name'] = environments
+        print(environments)
         class_names = [f.name for f in os.scandir(os.path.join(root, environments[0])) if f.is_dir()]
         hparams['class_names'] = sorted(class_names)
 
@@ -259,7 +261,8 @@ class OfficeHome(MultipleEnvironmentImageFolder):
     CHECKPOINT_FREQ = 300
     ENVIRONMENTS = ["A", "C", "P", "R"]
     def __init__(self, root, test_envs, hparams):
-        self.dir = os.path.join(root, "office_home/")
+        #self.dir = os.path.join(root, "office_home/")
+        self.dir = os.path.join(root, "OfficeHomeDataset_10072016/")
         super().__init__(self.dir, test_envs, hparams['data_augmentation'], hparams)
 
 class TerraIncognita(MultipleEnvironmentImageFolder):

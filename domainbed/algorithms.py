@@ -130,6 +130,7 @@ class CLIP(Algorithm):
         self.hparams = hparams
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
+        #print(self.hparams['clip_backbone'])
         self.clip_model = clip.load(self.hparams['clip_backbone'])[0].float()
 
         for param in self.clip_model.parameters():
@@ -208,6 +209,7 @@ class DPLCLIP(CLIP):
         #  extract domain_feature for each domain. [32, self.EMBEDDING_DIM] -> [32, self.EMBEDDING_DIM * num_domain_tokens] -> [self.EMBEDDING_DIM * num_domain_tokens].
         domain_features = [self.network(feature) for feature in image_features]
         image_features = torch.cat(image_features)
+
         #  reshape [self.batch_size, self.EMBEDDING_DIM.]:  -> [1, self.EMBEDDING_DIM.]
         mean_domain_features = [feature.mean(dim=0, keepdim=True) for feature in domain_features]
 
