@@ -144,7 +144,7 @@ if __name__ == "__main__":
 
     # TODO:
     #args.skip_model_save = True
-    def save_checkpoint(filename):
+    def save_checkpoint(filename, args, algorithm):
         print("SAVE CHECKPOINT: %s" % filename)
         if args.skip_model_save:
             print("WHY ARE YOU SKIPPING")
@@ -164,9 +164,9 @@ if __name__ == "__main__":
         torch.save(save_dict, os.path.join(args.output_dir, filename))
 
 
-    def load_checkpoint(filename):
+    def load_checkpoint(filename, args):
         print("LOAD CHECKPOINT: %s" % filename)
-        model_dict = torch.load(os.path.join(args.output_dir, filename))["model_dict"] 
+        #model_dict = torch.load(os.path.join(args.output_dir, filename))["model_dict"] 
         #print(list(model_dict.keys()))
         #1/0
         init_state_dict = torch.load(os.path.join(args.output_dir, filename))["model_dict"]
@@ -192,11 +192,8 @@ if __name__ == "__main__":
             m = DataParallelPassthrough(m)
 
     #Save Initialization
-    save_checkpoint('initialization.pkl')
+    save_checkpoint('initialization.pkl', args, algorithm)
     #save_checkpoint('init_model.pkl')
-    
-    #Delete ASAP
-    #algorithm.to(device)
     
     for base_env in base_envs:
         base_env = [int(b) for b in base_env]
@@ -206,8 +203,9 @@ if __name__ == "__main__":
 
 
 
-        def train_algs(init_name, base_env_name, test_envs):
-            
+        def train_algs(init_name, train_env_name, test_envs):
+
+            print(f'{train_env_name} version is being trained')
             start_step = 0
             
             # Split each env into an 'in-split' and an 'out-split'. We'll train on
@@ -266,12 +264,6 @@ if __name__ == "__main__":
                 for i, (env, env_weights) in enumerate(uda_splits)
                 if i in test_envs]
 
-            #print(uda_splits)
-            #print(len(dataset))
-            #print(len(args.test_envs))
-            #print(args.test_envs)
-            #print(dataset)
-            #1/0
 
             eval_loaders = [FastDataLoader(
                 dataset=env,
@@ -289,9 +281,6 @@ if __name__ == "__main__":
             algorithm_class = algorithms.get_algorithm_class(args.algorithm)
             algorithm = algorithm_class(dataset.input_shape, dataset.num_classes,
                 len(dataset) - len(test_envs), hparams)
-            #len(dataset) - len(args.test_envs), hparams)
-
-            #algorithm.load_state_dict(load_checkpoint("initialization.pkl"))
             
             #if algorithm_dict is not None:
             #    algorithm.load_state_dict(algorithm_dict)
@@ -303,8 +292,7 @@ if __name__ == "__main__":
                 for m in algorithm.children():
                     m = DataParallelPassthrough(m)
 
-            #algorithm.load_state_dict(load_checkpoint("initialization.pkl"))
-            algorithm.load_state_dict(load_checkpoint(init_name))
+            algorithm.load_state_dict(load_checkpoint(init_name, args))
             
 
             train_minibatches_iterator = zip(*train_loaders)
@@ -321,14 +309,12 @@ if __name__ == "__main__":
             checkpoint_freq = args.checkpoint_freq or dataset.CHECKPOINT_FREQ
 
 
-            # Save Initialization
-            # save_checkpoint('initialization.pkl')
-            # save_checkpoint('init_model.pkl')
             algorithm.to(device)
 
 
             last_results_keys = None
             for step in range(start_step, n_steps):
+
                 step_start_time = time.time()
                 minibatches_device = [(x.to(device), y.to(device))
                     for x,y in next(train_minibatches_iterator)]
@@ -352,6 +338,7 @@ if __name__ == "__main__":
                         results[key] = np.mean(val)
 
                     evals = zip(eval_loader_names, eval_loaders, eval_weights)
+
                     for name, loader, weights in evals:
                         acc = misc.accuracy(algorithm, loader, weights, device)
                         results[name+'_acc'] = acc
@@ -370,7 +357,7 @@ if __name__ == "__main__":
                         'args': vars(args)    
                     })
 
-                    epochs_path = os.path.join(args.output_dir, 'results.jsonl')
+                    epochs_path = os.path.join(args.output_dir, f'{train_env_name}_results.jsonl')
 
                     with open(epochs_path, 'a') as f:
                         f.write(json.dumps(results, sort_keys=True) + "\n")
@@ -390,13 +377,14 @@ if __name__ == "__main__":
                     #print(scores)
                     #print(epochs_path)
                     if scores[-1] == scores.argmax('val_acc'):
-                        save_checkpoint(f'{base_env_name}_IID_best.pkl')
+                        save_checkpoint(f'{train_env_name}_IID_best.pkl', args, algorithm)
                         algorithm.to(device)
                     
                     if args.save_model_every_checkpoint:
-                        save_checkpoint(f'{base_env_name}_model_step{step}.pkl')          
+                        save_checkpoint(f'{train_env_name}_model_step{step}.pkl', args, algorithm)          
             
-            save_checkpoint(f'{base_env_name}_model.pkl')
+            save_checkpoint(f'{train_env_name}_model.pkl', args, algorithm)
+
 
         #############################################
         #   Add an adjustment for each env          #
@@ -404,15 +392,16 @@ if __name__ == "__main__":
 
         train_algs("initialization.pkl", base_env_name, test_envs)
         
-        # Option one do joint base and test target env #
+        # Option one do only test target env #
         for current_base_env in test_envs:
-            current_test_envs = [t for t in test_envs if t != current_base_env]
+            extended_te = base_env + test_envs
+            current_test_envs = [t for t in extended_te if t != current_base_env]
             current_base_env_name = f"adapt_env_{str(current_base_env)}"
             train_algs(f"{base_env_name}_model.pkl", 
                     f"{base_env_name}_base_{current_base_env_name}",
                     current_test_envs)
 
-        # Option two do only test target env           #
+        # Option two do joint base and test target env           #
         for current_base_env in test_envs:
             new_base_env = base_env + [current_base_env]
             current_test_envs = [t for t in test_envs if t not in new_base_env]
@@ -423,7 +412,7 @@ if __name__ == "__main__":
             
 
         # Option three do all test environments together 
-        new_base_env = test_envs.copy()
+        new_base_env = base_env + test_envs
         current_test_envs = [t for t in test_envs if t not in new_base_env]
         current_base_env_name = "_".join((str(b) for b in new_base_env))            
         train_algs(f"{base_env_name}_model.pkl", 
