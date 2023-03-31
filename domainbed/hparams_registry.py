@@ -83,6 +83,12 @@ def _hparams(algorithm, dataset, random_seed):
     elif algorithm == "CLIP":
         _hparam('prompt', 'class_name', lambda r: r.choice(['class_name', 'domain_name']))
         
+    elif algorithm in ["CoOp", "CoCoOp"]:
+        _hparam('num_domain_tokens', 4, lambda r: int(r.choice([2, 4, 8, 16])))  # the parameter should be int, not numpy.int, due to dump into results.jsonl.
+        _hparam('mlp_depth', 3, lambda r: int(r.choice([3])))
+        _hparam('mlp_width', 512, lambda r: int(r.choice([256, 512])))
+        _hparam('mlp_dropout', 0.1, lambda r: r.choice([0.0, 0.1]))
+    
     elif algorithm in ["DPLCLIP"]:
         _hparam('num_domain_tokens', 16, lambda r: int(r.choice([2, 4, 8, 16])))  # the parameter should be int, not numpy.int, due to dump into results.jsonl.
         # MLP
@@ -98,12 +104,12 @@ def _hparams(algorithm, dataset, random_seed):
         _hparam('mlp_dropout', 0.1, lambda r: r.choice([0.0, 0.1]))
     
     # below corresponds to exactly one hparam. Avoid nested conditionals.
-    if dataset in SMALL_IMAGES or algorithm in ["DPLCLIP", "PALSBASE"]:  # DPLCLIP using SGD follower prior work.
+    if dataset in SMALL_IMAGES or algorithm in ["DPLCLIP", "PALSBASE", "CoOp", "CoCoOp"]:  # DPLCLIP using SGD follower prior work.
         _hparam('lr', 1e-3, lambda r: 10**r.uniform(-4.5, -2.5))
     else:
         _hparam('lr', 5e-5, lambda r: 10**r.uniform(-5, -3.5))
 
-    if dataset in SMALL_IMAGES or algorithm in ["DPLCLIP", "PALSBASE"]:
+    if dataset in SMALL_IMAGES or algorithm in ["DPLCLIP", "PALSBASE", "CoOp", "CoCoOp"]:
         _hparam('weight_decay', 0., lambda r: 0.)
         _hparam('momentum', 0.1, lambda r: r.choice([0.0, 0.1, 0.2]))
     else:
@@ -115,6 +121,8 @@ def _hparams(algorithm, dataset, random_seed):
 
     if dataset in SMALL_IMAGES:
         _hparam('batch_size', 64, lambda r: int(2**r.uniform(3, 9)) )
+    elif algorithm == "CoCoOp":
+        _hparam("batch_size", 4, lambda r: 4)
     elif algorithm == "PALSBASE":
         _hparam('batch_size', 4, lambda r:4) 
         #_hparam('batch_size', 16, lambda r: int(2**r.uniform(2, 4)) )
