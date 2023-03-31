@@ -31,7 +31,9 @@ ALGORITHMS = [
     'SD',
     'CLIP',
     'DPLCLIP',
-    'PALSBASE'
+    'PALSBASE',
+    'CoOp',
+    'CoCoOp'
 ]
 
 
@@ -260,6 +262,388 @@ class DPLCLIP(CLIP):
         text_feature = text_feature / text_feature.norm(dim=-1, keepdim=True)
         return self.clip_model.logit_scale.exp() * image_feature @ text_feature.t()
 
+
+
+
+
+
+
+
+class CoOp(CLIP):
+
+    def __init__(self, input_shape, num_classes, num_domains, hparams, sentence_prompt=False):
+        super(CoOp, self).__init__(input_shape, num_classes, num_domains, hparams)
+
+        prompt_prefix = " ".join(["X"] * hparams["num_domain_tokens"])
+
+        prefix_tok = clip.tokenize(prompt_prefix).to(self.device)
+        with torch.no_grad():
+            embedding = self.clip_model.token_embedding(prefix_tok).type(self.clip_model.dtype)
+        
+        ctx_vectors = embedding[0, 1:1 + hparams["num_domain_tokens"], :]
+        self.ctx = nn.Parameter(ctx_vectors)
+
+        #self.ctx
+
+        if sentence_prompt:
+            print("Using Sentence Prompt in CoOp")
+            classnames = [f"a photo of a {name.replace('_', ' ')}" for name in hparams['class_names']]
+        else:
+            classnames = [name.replace("_", " ") for name in hparams["class_names"]]
+
+        self.classnames = classnames
+
+
+
+        prompts = [prompt_prefix + " " + name + "." for name in classnames]
+
+        self.tokenized_prompts = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+
+        with torch.no_grad():
+            embedding = self.clip_model.token_embedding(self.tokenized_prompts).type(self.clip_model.dtype)
+
+        self.register_buffer('token_prefix', embedding[:, :1, :])
+        self.register_buffer('token_suffix', embedding[:, hparams['num_domain_tokens'] + 1:, :])
+
+        self.optimizer = torch.optim.SGD(
+                [self.ctx],
+                lr=self.hparams["lr"],
+                momentum=self.hparams["momentum"]
+        )
+
+
+        ctx = self.ctx
+        if ctx.dim() == 2:
+            ctx = ctx.unsqueeze(0).expand(len(self.classnames), -1, -1)
+        
+        prompts = torch.cat(
+            [
+                self.token_prefix,
+                ctx,
+                self.token_suffix
+            ],
+            dim=1
+        )
+        #prompts.append(prompt)
+
+        #prompts = torch.cat(prompts, dim=0)
+
+        self.text_features = self._get_text_features(prompts)
+        #self.text_features
+
+
+    def update(self, minibatches, unlabeled=None):
+        """
+        """
+
+        ctx = self.ctx
+        if ctx.dim() == 2:
+            ctx = ctx.unsqueeze(0).expand(len(self.classnames), -1, -1)
+
+        all_x = [data[0].cuda().float() for data in minibatches]
+        all_y = torch.cat([data[1].cuda().long() for data in minibatches])
+
+        # encode images
+        image_features = [self.clip_model.encode_image(x) for x in all_x]
+        image_features = torch.cat(image_features)
+
+        prefix = self.token_prefix
+        suffix = self.token_suffix
+
+        #END Version
+        #prompts = torch.cat([prefix, ctx, suffix for _ in range(len(self.classnames))], dim=1,)
+        #for _ in range(len(self.classnames)):
+        
+        
+        prompts = torch.cat(
+            [
+                prefix,
+                ctx,
+                suffix
+            ],
+            dim=1
+        )
+        #prompts.append(prompt)
+
+        #prompts = torch.cat(prompts, dim=0)
+
+        text_features = self._get_text_features(prompts)
+        
+        #text_features = self.text_features
+
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        logits_per_image = self.clip_model.logit_scale.exp() * image_features @ text_features.t()
+        loss = F.cross_entropy(logits_per_image, all_y)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return {"loss": loss.item()}
+
+
+    def _get_text_features(self, prompts):
+
+        x = prompts + self.clip_model.positional_embedding.type(self.clip_model.dtype)
+        x = x.permute(1, 0, 2)
+        x = self.clip_model.transformer(x)
+        x = x.permute(1, 0, 2)
+        x  = self.clip_model.ln_final(x).type(self.clip_model.dtype)
+
+        text_features = x[torch.arange(x.shape[0]), self.tokenized_prompts.argmax(dim=-1)] @ self.clip_model.text_projection
+        return text_features
+
+    
+    def predict(self, x):
+
+        image_feature = self.clip_model.encode_image(x)
+
+        
+        ctx = self.ctx
+        if ctx.dim() == 2:
+            ctx = ctx.unsqueeze(0).expand(len(self.classnames), -1, -1)
+
+
+        prompts = torch.cat(
+                [
+                    self.token_prefix,
+                    ctx,
+                    self.token_suffix
+                ],
+                dim=1,
+            )
+
+        text_feature = self._get_text_features(prompts)
+        
+        #text_feature = self.text_features
+
+        image_feature = image_feature / image_feature.norm(dim=-1, keepdim=True)
+        text_feature = text_feature / text_feature.norm(dim=-1, keepdim=True)
+        return self.clip_model.logit_scale.exp() * image_feature @ text_feature.t()
+
+
+class CoCoOp(CoOp):
+    
+    def __init__(self, input_shape, num_classes, num_domains, hparams, sentence_prompt=False):
+        super(CoCoOp, self).__init__(input_shape, num_classes, num_domains, hparams)
+
+        prompt_prefix = " ".join(["X"] * hparams["num_domain_tokens"])
+
+        prefix_tok = clip.tokenize(prompt_prefix).to(self.device)
+        with torch.no_grad():
+            embedding = self.clip_model.token_embedding(prefix_tok).type(self.clip_model.dtype)
+        
+        ctx_vectors = embedding[0, 1:1 + hparams["num_domain_tokens"], :]
+        self.ctx = nn.Parameter(ctx_vectors)
+
+
+        #####
+        #self.ctx
+
+        if sentence_prompt:
+            print("Using Sentence Prompt in CoOp")
+            classnames = [f"a photo of a {name.replace('_', ' ')}" for name in hparams['class_names']]
+        else:
+            classnames = [name.replace("_", " ") for name in hparams["class_names"]]
+
+        self.classnames = classnames
+
+
+
+        prompts = [prompt_prefix + " " + name + "." for name in classnames]
+
+        self.tokenized_prompts = torch.cat([clip.tokenize(p) for p in prompts]).to(self.device)
+
+        with torch.no_grad():
+            embedding = self.clip_model.token_embedding(self.tokenized_prompts).type(self.clip_model.dtype)
+
+        self.register_buffer('token_prefix', embedding[:, :1, :])
+        self.register_buffer('token_suffix', embedding[:, hparams['num_domain_tokens'] + 1:, :]) 
+
+        #self.network = networks.MLP(self.EMBEDDING_DIM, self.EMBEDDING_DIM * hparams['num_domain_tokens'], hparams).to(device=self.device, dtype=self.clip_model.dtype)
+        
+        self.network = networks.MLP(self.EMBEDDING_DIM, self.EMBEDDING_DIM  , hparams).to(device=self.device, dtype=self.clip_model.dtype)
+        
+        def init_weights(m):
+            if isinstance(m, nn.Linear):
+                torch.nn.init.xavier_uniform(m.weight)
+                m.bias.data.fill_(0.01)
+        
+        self.network.apply(init_weights)
+        
+        self.optimizer = torch.optim.SGD(
+            self.network.parameters(),
+            lr=self.hparams["lr"],
+            momentum=self.hparams["momentum"]
+        )
+
+
+
+        self.optimizer = torch.optim.SGD(
+                [
+                {"params": [self.ctx]},
+                {"params": self.network.parameters()}],
+                lr=self.hparams["lr"],
+                momentum=self.hparams["momentum"]
+        )
+
+
+        ctx = self.ctx
+        if ctx.dim() == 2:
+            ctx = ctx.unsqueeze(0).expand(len(self.classnames), -1, -1)
+        
+        prompts = torch.cat(
+            [
+                self.token_prefix,
+                ctx,
+                self.token_suffix
+            ],
+            dim=1
+        )
+        #prompts.append(prompt)
+
+        #prompts = torch.cat(prompts, dim=0)
+
+        self.text_features = self._get_text_features(prompts)
+        #self.text_features
+
+
+    def construct_prompts(self, ctx, prefix, suffix):
+
+        prompts = torch.cat(
+                [
+                    prefix,
+                    ctx,
+                    suffix,
+                ],
+                dim=1
+            )
+
+
+        return prompts
+
+    def update(self, minibatches, unlabeled=None):
+        """
+        """
+
+        ctx = self.ctx
+        # UNDONE FOR COCOOP
+        #if ctx.dim() == 2:
+        #    ctx = ctx.unsqueeze(0).expand(len(self.classnames), -1, -1)
+
+        all_x = [data[0].cuda().float() for data in minibatches]
+        all_y = torch.cat([data[1].cuda().long() for data in minibatches])
+
+        # encode images
+        image_features = [self.clip_model.encode_image(x) for x in all_x]
+        image_features = torch.cat(image_features)
+        image_features.detach()
+
+        prefix = self.token_prefix
+        suffix = self.token_suffix
+
+        bias = self.network(image_features)
+        bias = bias.unsqueeze(1)
+        ctx = ctx.unsqueeze(0)
+        ctx_shifted = ctx + bias
+
+        prompts = []
+        for ctx_shifted_i in ctx_shifted:
+            ctx_i = ctx_shifted_i.unsqueeze(0).expand(len(self.classnames), -1, -1)
+            pts_i = self.construct_prompts(ctx_i, prefix, suffix)
+            prompts.append(pts_i)
+
+        #END Version
+        #prompts = torch.cat([prefix, ctx, suffix for _ in range(len(self.classnames))], dim=1,)
+        #for _ in range(len(self.classnames)):
+
+        prompts = torch.stack(prompts)
+        #prompts = torch.cat(prompts, dim=1)
+        logits =[]
+        for pts_i, imf_i in zip(prompts, image_features):
+            text_features = self._get_text_features(pts_i)#, tokenized_prompts)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            l_i = self.clip_model.logit_scale.exp() * imf_i @ text_features.t()
+            logits.append(l_i)
+        logits = torch.stack(logits)
+        #text_features = self._get_text_features(prompts)
+        
+        #image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        #text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+        #logits_per_image = self.clip_model.logit_scale.exp() * image_features @ text_features.t()
+        #loss = F.cross_entropy(logits_per_image, all_y)
+        loss = F.cross_entropy(logits, all_y)
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return {"loss": loss.item()}
+
+
+    def _get_text_features(self, prompts):
+
+        x = prompts + self.clip_model.positional_embedding.type(self.clip_model.dtype)
+        x = x.permute(1, 0, 2)
+        x = self.clip_model.transformer(x)
+        x = x.permute(1, 0, 2)
+        x  = self.clip_model.ln_final(x).type(self.clip_model.dtype)
+
+        text_features = x[torch.arange(x.shape[0]), self.tokenized_prompts.argmax(dim=-1)] @ self.clip_model.text_projection
+        return text_features
+
+    
+    def predict(self, x):
+
+        image_feature = self.clip_model.encode_image(x)
+     
+        ctx = self.ctx
+        prefix = self.token_prefix
+        suffix = self.token_suffix
+        #if ctx.dim() == 2:
+        #    ctx = ctx.unsqueeze(0).expand(len(self.classnames), -1, -1)
+
+        bias = self.network(image_feature)
+        bias = bias.unsqueeze(1)
+        ctx = ctx.unsqueeze(0) 
+        ctx_shifted = ctx + bias
+        
+
+        prompts = []
+        for ctx_shifted_i in ctx_shifted:
+            ctx_i = ctx_shifted_i.unsqueeze(0).expand(len(self.classnames), -1, -1)
+            pts_i = self.construct_prompts(ctx_i, prefix, suffix)
+            prompts.append(pts_i)
+
+        prompts = torch.stack(prompts)
+        """
+        prompts = torch.cat(
+                [
+                    self.token_prefix,
+                    ctx,
+                    self.token_suffix
+                ],
+                dim=1,
+            )
+        """
+        
+        logits =[]
+        for pts_i, imf_i in zip(prompts, image_feature):
+            text_features = self._get_text_features(pts_i)#, tokenized_prompts)
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            l_i = self.clip_model.logit_scale.exp() * imf_i @ text_features.t()
+            logits.append(l_i)
+        logits = torch.stack(logits)
+
+        return logits
+        """
+        text_feature = self._get_text_features(prompts)
+        
+        #text_feature = self.text_features
+
+        image_feature = image_feature / image_feature.norm(dim=-1, keepdim=True)
+        text_feature = text_feature / text_feature.norm(dim=-1, keepdim=True)
+        return self.clip_model.logit_scale.exp() * image_feature @ text_feature.t()
+        """
 
 
 # rename to DPL (Domain Prompt Learning)
