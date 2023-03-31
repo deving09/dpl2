@@ -392,6 +392,34 @@ if __name__ == "__main__":
 
         train_algs("initialization.pkl", base_env_name, test_envs)
         
+        # Option one do only test target env  BEST #
+        for current_base_env in test_envs:
+            extended_te = base_env + test_envs
+            current_test_envs = [t for t in extended_te if t != current_base_env]
+            current_base_env_name = f"adapt_env_{str(current_base_env)}"
+            train_algs(f"{base_env_name}_IID_best.pkl", 
+                    f"{base_env_name}_best_base_{current_base_env_name}",
+                    current_test_envs)
+
+        # Option two do joint base and test target env       Best    #
+        for current_base_env in test_envs:
+            new_base_env = base_env + [current_base_env]
+            current_test_envs = [t for t in test_envs if t not in new_base_env]
+            current_base_env_name = "_".join((str(b) for b in new_base_env))            
+            train_algs(f"{base_env_name}_IID_best.pkl", 
+                    f"{base_env_name}_best_base_adapt_env_{current_base_env_name}",
+                    current_test_envs)
+            
+
+        # Option three do all test environments together Best
+        new_base_env = base_env + test_envs
+        current_test_envs = [t for t in test_envs if t not in new_base_env]
+        current_base_env_name = "_".join((str(b) for b in new_base_env))            
+        train_algs(f"{base_env_name}_IID_best.pkl", 
+                f"{base_env_name}_best_base_adapt_env_{current_base_env_name}",
+                current_test_envs)
+
+
         # Option one do only test target env #
         for current_base_env in test_envs:
             extended_te = base_env + test_envs
@@ -407,7 +435,7 @@ if __name__ == "__main__":
             current_test_envs = [t for t in test_envs if t not in new_base_env]
             current_base_env_name = "_".join((str(b) for b in new_base_env))            
             train_algs(f"{base_env_name}_model.pkl", 
-                    f"{base_env_name}_base_{current_base_env_name}",
+                    f"{base_env_name}_base_adapt_env_{current_base_env_name}",
                     current_test_envs)
             
 
@@ -416,10 +444,8 @@ if __name__ == "__main__":
         current_test_envs = [t for t in test_envs if t not in new_base_env]
         current_base_env_name = "_".join((str(b) for b in new_base_env))            
         train_algs(f"{base_env_name}_model.pkl", 
-                f"{base_env_name}_base_{current_base_env_name}",
+                f"{base_env_name}_base_adapt_env_{current_base_env_name}",
                 current_test_envs)
-
-
 
 
     with open(os.path.join(args.output_dir, 'done'), 'w') as f:
