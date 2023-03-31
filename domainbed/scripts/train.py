@@ -91,10 +91,6 @@ if __name__ == "__main__":
     for k, v in sorted(vars(args).items()):
         print('\t{}: {}'.format(k, v))
 
-    run = wandb.init(project=f"{args.project}_{args.dataset}", group=args.algorithm, config=args)
-
-    #wandb.save(args)
-    wandb.run.log_code(".")
 
     if args.hparams_seed == 0:
         hparams = hparams_registry.default_hparams(args.algorithm, args.dataset)
@@ -111,6 +107,14 @@ if __name__ == "__main__":
     print('HParams:')
     for k, v in sorted(hparams.items()):
         print('\t{}: {}'.format(k, v))
+
+    args.hparams = hparams
+    
+    #run = wandb.init(project=f"{args.project}_{args.dataset}", group=args.algorithm, config=args)
+    run = wandb.init(project=f"{args.project}_{args.dataset}", group="_".join(map(str, args.test_envs)), config=args)
+
+    #wandb.save(args)
+    wandb.run.log_code(".")
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -249,6 +253,10 @@ if __name__ == "__main__":
         print(os.path.join(args.output_dir, filename))
         torch.save(save_dict, os.path.join(args.output_dir, filename))
 
+
+    #Save Initialization
+    save_checkpoint('init_model.pkl')
+    algorithm.to(device)
 
     last_results_keys = None
     for step in range(start_step, n_steps):
