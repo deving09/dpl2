@@ -156,9 +156,13 @@ class TentFull(Algorithm):
     def configure_model_optimizer(self, algorithm, alpha):
         adapted_algorithm = copy.deepcopy(algorithm)
         adapted_algorithm.featurizer = configure_model(adapted_algorithm.featurizer)
+        #params, param_names = collect_params(adapted_algorithm.featurizer)
+        #params = dict(adapted_algorithm.featurizer.parameters())
         params, param_names = collect_params(adapted_algorithm.featurizer)
         optimizer = torch.optim.Adam(
             params, 
+            #lr=self.hparams["lr"]*alpha,
+            #weight_decay=self.hparams['weight_decay']
             lr=algorithm.hparams["lr"]*alpha,
             weight_decay=algorithm.hparams['weight_decay']
         )
